@@ -23,7 +23,9 @@
 
     <section id="result-view" class="results hidden">
       <section class="panel summary-panel">
-        <h2>Summary</h2>
+        <div class="section-head summary-head">
+          <h2>Summary</h2>
+        </div>
         <div id="summary" class="summary empty">Load a file to inspect its content and toolpaths.</div>
       </section>
 
@@ -35,7 +37,6 @@
       <section class="panel preview-panel">
         <div class="section-head">
           <h2>2D Preview</h2>
-          <p>Gray: source geometry. Colors: generated G-code toolpaths.</p>
         </div>
         <div id="preview" class="preview empty">The preview will appear here.</div>
         <div id="player" class="player hidden" aria-label="G-code player controls">
@@ -65,7 +66,6 @@
         <div class="section-head">
           <h2>G-code</h2>
           <div class="output-actions">
-            <p>Absolute GRBL output in millimeters.</p>
             <button id="download-btn" class="download-btn" disabled>Download G-code</button>
           </div>
         </div>

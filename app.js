@@ -1115,7 +1115,7 @@ function renderToolpaths(parsed) {
     .map((toolpath) => {
       const color = toolpath.color || PREVIEW_COLORS[0];
       const visible = toolpath.visible !== false;
-      const icon = visible ? "&#128065;" : "&#128683;";
+      const icon = visible ? "ON" : "OFF";
       return `
         <li class="toolpath-item">
           <div class="toolpath-meta">
@@ -1152,9 +1152,13 @@ function renderPreview(parsed, generated) {
     return;
   }
   const previewPaths = generated.previewPaths || [];
+  const visibleElementUUIDs = collectVisibleElementUUIDs(parsed);
 
   const sourcePaths = [];
   for (const element of parsed.elements) {
+    if (visibleElementUUIDs.size && !visibleElementUUIDs.has(element.uuid)) {
+      continue;
+    }
     for (const path of elementToPolylines(element, 0.2, [])) {
       sourcePaths.push(translateForWorkZero(path, parsed.document.zeroX, parsed.document.zeroY));
     }
@@ -1176,7 +1180,7 @@ function renderPreview(parsed, generated) {
     return;
   }
 
-  const bounds = computeCenteredBounds(allPoints, 10);
+  const bounds = computePreviewBounds(parsed, allPoints, 10);
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", `${bounds.minX} ${-bounds.maxY} ${bounds.width} ${bounds.height}`);
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
@@ -1230,6 +1234,41 @@ function renderPreview(parsed, generated) {
     generated,
   };
   updatePlaybackVisualization();
+}
+
+function computePreviewBounds(parsed, points, padding = 0) {
+  const documentWidth = toNumber(parsed.document.width, 0);
+  const documentHeight = toNumber(parsed.document.height, 0);
+  const zeroX = toNumber(parsed.document.zeroX, 0);
+  const zeroY = toNumber(parsed.document.zeroY, 0);
+
+  if (documentWidth > 0 && documentHeight > 0) {
+    return {
+      minX: -zeroX - padding,
+      minY: -zeroY - padding,
+      maxX: documentWidth - zeroX + padding,
+      maxY: documentHeight - zeroY + padding,
+      width: documentWidth + padding * 2,
+      height: documentHeight + padding * 2,
+    };
+  }
+
+  return computeCenteredBounds(points, padding);
+}
+
+function collectVisibleElementUUIDs(parsed) {
+  const visibleUUIDs = new Set();
+  for (const toolpath of parsed.toolpaths || []) {
+    if (toolpath.enabled === false || toolpath.visible === false) {
+      continue;
+    }
+    for (const elementRef of toolpath.elements || []) {
+      if (elementRef?.uuid) {
+        visibleUUIDs.add(elementRef.uuid);
+      }
+    }
+  }
+  return visibleUUIDs;
 }
 
 function updatePlaybackVisualization() {
