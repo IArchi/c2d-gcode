@@ -7,6 +7,7 @@
   --text: #433a31;
   --muted: #7e7265;
   --accent: #96adbf;
+  --accent-dark: #7d97ab;
   --accent-2: #96adbf;
   --warning: #c99a53;
   --danger: #c7776d;
@@ -77,6 +78,7 @@ code {
 }
 
 .upload-card:hover .upload-cta {
+  background: var(--accent-dark);
   transform: translateY(-1px);
   box-shadow: 0 14px 32px rgba(121, 184, 174, 0.2);
 }
@@ -122,6 +124,7 @@ h2 {
   color: #fffdfa;
   font-size: 1.2rem;
   font-weight: 800;
+  cursor: pointer;
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
@@ -249,6 +252,10 @@ textarea {
   cursor: pointer;
 }
 
+.download-btn:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
 .download-btn:disabled {
   cursor: not-allowed;
   filter: grayscale(0.6);
@@ -284,10 +291,18 @@ textarea {
 
 .summary dt {
   color: var(--muted);
+  display: flex;
+  align-items: center;
 }
 
 .summary dd {
   margin: 0;
+  display: flex;
+  align-items: center;
+}
+
+.summary-number-input {
+  max-width: 140px;
 }
 
 .toolpath-list {
@@ -300,13 +315,19 @@ textarea {
 
 .toolpath-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.48);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.4));
+}
+
+.toolpath-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 10px;
 }
 
 .toolpath-meta {
@@ -316,39 +337,86 @@ textarea {
   gap: 10px;
 }
 
+.toolpath-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+}
+
 .toolpath-swatch {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
   flex: 0 0 auto;
+  box-shadow: 0 0 0 4px rgba(150, 173, 191, 0.14);
 }
 
 .toolpath-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 700;
 }
 
-.toolpath-toggle {
+.toolpath-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolpath-stat {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(247, 243, 237, 0.9);
+  border: 1px solid rgba(211, 203, 192, 0.8);
+}
+
+.toolpath-stat-label {
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.toolpath-stat-value {
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolpath-edit,
+.secondary-btn {
   border: 1px solid var(--border);
   background: #fffaf3;
   color: var(--text);
   border-radius: 10px;
-  width: 42px;
-  height: 42px;
-  display: inline-flex;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.toolpath-edit-inline {
+  min-width: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  flex: 0 0 auto;
+  text-align: center;
+  padding: 8px 10px;
 }
 
-.toolpath-toggle[aria-pressed="false"] {
-  color: var(--muted);
-  opacity: 0.65;
-}
-
-.toolpath-toggle:hover {
+.toolpath-edit:hover,
+.secondary-btn:hover {
+  background: #f1e7d9;
   border-color: var(--accent-2);
 }
 
@@ -374,6 +442,67 @@ textarea {
 .section-head p {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(36, 30, 24, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.modal-panel {
+  position: relative;
+  width: min(560px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), transparent 70%), var(--panel);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.modal-eyebrow {
+  margin-bottom: 4px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+}
+
+.modal-form {
+  display: grid;
+  gap: 18px;
+}
+
+.modal-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .player {
@@ -407,6 +536,11 @@ textarea {
   font-weight: 700;
 }
 
+.transport-btn.primary:hover {
+  background: var(--accent-dark);
+  border-color: transparent;
+}
+
 .transport-btn:hover,
 .speed-control select:hover {
   border-color: var(--accent-2);
@@ -425,6 +559,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 12px;
+  cursor: pointer;
 }
 
 .time-indicator {
@@ -560,5 +695,32 @@ textarea {
 
   .download-btn {
     width: 100%;
+  }
+
+  .toolpath-item {
+    flex-direction: column;
+  }
+
+  .toolpath-main,
+  .toolpath-meta,
+  .toolpath-stats {
+    width: 100%;
+  }
+
+  .toolpath-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolpath-edit,
+  .secondary-btn {
+    flex: 1 1 0;
+  }
+
+  .modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-actions {
+    flex-direction: column-reverse;
   }
 }

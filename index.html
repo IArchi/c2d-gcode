@@ -74,6 +74,42 @@
     </section>
   </main>
 
+  <div id="toolpath-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="toolpath-modal-title">
+    <div class="modal-backdrop" data-modal-close></div>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <div>
+          <p class="modal-eyebrow">Toolpath Settings</p>
+          <h2 id="toolpath-modal-title">Edit Toolpath</h2>
+        </div>
+      </div>
+      <form id="toolpath-modal-form" class="modal-form">
+        <div class="control-grid modal-grid">
+          <label>
+            <span>Feedrate (mm/min)</span>
+            <input id="toolpath-feedrate" name="feedrate" type="number" min="0" step="1" required>
+          </label>
+          <label>
+            <span>Plunge rate (mm/min)</span>
+            <input id="toolpath-plungerate" name="plungerate" type="number" min="0" step="1" required>
+          </label>
+          <label>
+            <span>Depth per pass (mm)</span>
+            <input id="toolpath-stepdown" name="stepdown" type="number" min="0" step="0.1" required>
+          </label>
+          <label>
+            <span>RPM</span>
+            <input id="toolpath-rpm" name="rpm" type="number" min="0" step="1" required>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button id="toolpath-modal-cancel" class="secondary-btn" type="button">Cancel</button>
+          <button class="download-btn" type="submit">Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js"></script>

@@ -19,6 +19,7 @@ const state = {
   generated: null,
   fileName: "",
   nextToolpathColorIndex: 0,
+  activeToolpathUUID: null,
   previewRender: null,
   playback: {
     currentTimeSec: 0,
@@ -46,6 +47,14 @@ const refs = {
   timeIndicator: document.getElementById("time-indicator"),
   output: document.getElementById("gcode-output"),
   downloadBtn: document.getElementById("download-btn"),
+  toolpathModal: document.getElementById("toolpath-modal"),
+  toolpathModalTitle: document.getElementById("toolpath-modal-title"),
+  toolpathModalCancel: document.getElementById("toolpath-modal-cancel"),
+  toolpathModalForm: document.getElementById("toolpath-modal-form"),
+  toolpathFeedrate: document.getElementById("toolpath-feedrate"),
+  toolpathPlungerate: document.getElementById("toolpath-plungerate"),
+  toolpathStepdown: document.getElementById("toolpath-stepdown"),
+  toolpathRpm: document.getElementById("toolpath-rpm"),
 };
 
 bootstrap().catch((error) => {
@@ -65,6 +74,18 @@ async function bootstrap() {
   refs.forwardBtn.addEventListener("click", () => stepPlayback(5));
   refs.speedSelect.addEventListener("change", () => {
     state.playback.speed = toNumber(refs.speedSelect.value, 1);
+  });
+  refs.toolpathModalCancel.addEventListener("click", closeToolpathModal);
+  refs.toolpathModal.addEventListener("click", (event) => {
+    if (event.target.hasAttribute("data-modal-close")) {
+      closeToolpathModal();
+    }
+  });
+  refs.toolpathModalForm.addEventListener("submit", applyToolpathSettings);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !refs.toolpathModal.classList.contains("hidden")) {
+      closeToolpathModal();
+    }
   });
   updatePlayerUI();
 }
@@ -121,6 +142,55 @@ function toggleToolpathVisibility(toolpathUUID) {
     return;
   }
   toolpath.visible = toolpath.visible === false ? true : false;
+  regenerate();
+}
+
+function updateSafeZ(value) {
+  if (!state.parsed) {
+    return;
+  }
+  state.parsed.document.safeZ = sanitizePositiveNumber(value, 8);
+  regenerate();
+}
+
+function openToolpathModal(toolpathUUID) {
+  if (!state.parsed) {
+    return;
+  }
+  const toolpath = state.parsed.toolpaths.find((entry) => entry.uuid === toolpathUUID);
+  if (!toolpath) {
+    return;
+  }
+  state.activeToolpathUUID = toolpathUUID;
+  refs.toolpathModalTitle.textContent = toolpath.name || toolpath.uuid;
+  refs.toolpathFeedrate.value = formatNumber(sanitizePositiveNumber(toolpath.speeds?.feedrate, 1));
+  refs.toolpathPlungerate.value = formatNumber(sanitizePositiveNumber(toolpath.speeds?.plungerate, sanitizePositiveNumber(toolpath.speeds?.feedrate, 1)));
+  refs.toolpathStepdown.value = formatNumber(Math.max(0.001, sanitizePositiveNumber(toolpath.stepdown, 0.001)));
+  refs.toolpathRpm.value = String(Math.max(0, Math.round(toNumber(toolpath.speeds?.rpm, 0))));
+  refs.toolpathModal.classList.remove("hidden");
+}
+
+function closeToolpathModal() {
+  refs.toolpathModal.classList.add("hidden");
+  state.activeToolpathUUID = null;
+}
+
+function applyToolpathSettings(event) {
+  event.preventDefault();
+  if (!state.parsed || !state.activeToolpathUUID) {
+    return;
+  }
+  const toolpath = state.parsed.toolpaths.find((entry) => entry.uuid === state.activeToolpathUUID);
+  if (!toolpath) {
+    closeToolpathModal();
+    return;
+  }
+  toolpath.speeds = toolpath.speeds || {};
+  toolpath.speeds.feedrate = sanitizePositiveNumber(refs.toolpathFeedrate.value, sanitizePositiveNumber(toolpath.speeds.feedrate, 1));
+  toolpath.speeds.plungerate = sanitizePositiveNumber(refs.toolpathPlungerate.value, toolpath.speeds.feedrate);
+  toolpath.stepdown = Math.max(0.001, sanitizePositiveNumber(refs.toolpathStepdown.value, Math.max(toNumber(toolpath.stepdown, 0.001), 0.001)));
+  toolpath.speeds.rpm = Math.max(0, Math.round(toNumber(refs.toolpathRpm.value, toNumber(toolpath.speeds.rpm, 0))));
+  closeToolpathModal();
   regenerate();
 }
 
@@ -1097,10 +1167,28 @@ function renderSummary(parsed, generated) {
       <dt>Origin</dt><dd>X ${formatNumber(parsed.document.zeroX)}, Y ${formatNumber(parsed.document.zeroY)}, Z ${formatNumber(parsed.document.zeroZ)}</dd>
       <dt>Machine</dt><dd>${escapeHtml(parsed.document.machine || "n/a")}</dd>
       <dt>Material</dt><dd>${escapeHtml(parsed.document.material || "n/a")}</dd>
-      <dt>Safe Z</dt><dd>${formatNumber(generated.stats.safeZ)} mm</dd>
+      <dt>Safe Z</dt>
+      <dd>
+        <input
+          class="summary-number-input"
+          type="number"
+          min="0"
+          step="0.1"
+          value="${escapeHtml(formatNumber(generated.stats.safeZ))}"
+          data-safe-z-input
+          aria-label="Safe Z in millimeters"
+        >
+      </dd>
       <dt>Duration</dt><dd>${formatDuration(generated.totalDurationSec)}</dd>
     </dl>
   `;
+
+  const safeZInput = refs.summary.querySelector("[data-safe-z-input]");
+  if (safeZInput) {
+    safeZInput.addEventListener("change", () => {
+      updateSafeZ(safeZInput.value);
+    });
+  }
 }
 
 function renderToolpaths(parsed) {
@@ -1115,20 +1203,37 @@ function renderToolpaths(parsed) {
     .map((toolpath) => {
       const color = toolpath.color || PREVIEW_COLORS[0];
       const visible = toolpath.visible !== false;
-      const icon = visible ? "ON" : "OFF";
+      const feed = formatNumber(sanitizePositiveNumber(toolpath.speeds?.feedrate, 1));
+      const plunge = formatNumber(sanitizePositiveNumber(toolpath.speeds?.plungerate, sanitizePositiveNumber(toolpath.speeds?.feedrate, 1)));
+      const stepdown = formatNumber(Math.max(0.001, sanitizePositiveNumber(toolpath.stepdown, 0.001)));
+      const rpm = formatCompactRpm(toolpath.speeds?.rpm);
       return `
         <li class="toolpath-item">
-          <div class="toolpath-meta">
-            <span class="toolpath-swatch" style="background:${color}"></span>
-            <span class="toolpath-name">${escapeHtml(toolpath.name || toolpath.uuid)}</span>
+          <div class="toolpath-main">
+            <div class="toolpath-meta">
+              <input
+                class="toolpath-checkbox"
+                type="checkbox"
+                ${visible ? "checked" : ""}
+                data-toolpath-toggle="${escapeHtml(toolpath.uuid)}"
+                aria-label="${visible ? "Hide toolpath" : "Show toolpath"} ${escapeHtml(toolpath.name || toolpath.uuid)}"
+              >
+              <span class="toolpath-swatch" style="background:${color}"></span>
+              <span class="toolpath-name">${escapeHtml(toolpath.name || toolpath.uuid)}</span>
+            </div>
+            <div class="toolpath-stats" aria-label="Toolpath settings">
+              <span class="toolpath-stat"><span class="toolpath-stat-label">FEED</span><span class="toolpath-stat-value">${feed}</span></span>
+              <span class="toolpath-stat"><span class="toolpath-stat-label">PLNG</span><span class="toolpath-stat-value">${plunge}</span></span>
+              <span class="toolpath-stat"><span class="toolpath-stat-label">PASS</span><span class="toolpath-stat-value">${stepdown}</span></span>
+              <span class="toolpath-stat"><span class="toolpath-stat-label">RPM</span><span class="toolpath-stat-value">${rpm}</span></span>
+              <button
+                class="toolpath-stat toolpath-edit toolpath-edit-inline"
+                type="button"
+                data-toolpath-edit="${escapeHtml(toolpath.uuid)}"
+                title="Edit toolpath settings"
+              >EDIT</button>
+            </div>
           </div>
-          <button
-            class="toolpath-toggle"
-            type="button"
-            aria-pressed="${visible ? "true" : "false"}"
-            data-toolpath-toggle="${escapeHtml(toolpath.uuid)}"
-            title="${visible ? "Hide toolpath" : "Show toolpath"}"
-          >${icon}</button>
         </li>
       `;
     })
@@ -1138,8 +1243,13 @@ function renderToolpaths(parsed) {
   refs.toolpaths.innerHTML = toolpathItems ? `<ul class="toolpath-list">${toolpathItems}</ul>` : "No active toolpaths.";
 
   refs.toolpaths.querySelectorAll("[data-toolpath-toggle]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("change", () => {
       toggleToolpathVisibility(button.getAttribute("data-toolpath-toggle"));
+    });
+  });
+  refs.toolpaths.querySelectorAll("[data-toolpath-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openToolpathModal(button.getAttribute("data-toolpath-edit"));
     });
   });
 }
@@ -1475,6 +1585,15 @@ function toNumber(value, fallback = 0) {
 
 function formatNumber(value) {
   return Number(value).toFixed(3).replace(/\.000$/, "").replace(/(\.\d*[1-9])0+$/, "$1");
+}
+
+function formatCompactRpm(value) {
+  const rpm = Math.max(0, Math.round(toNumber(value, 0)));
+  if (rpm >= 1000) {
+    const compact = rpm / 1000;
+    return `${formatNumber(compact)}k`;
+  }
+  return String(rpm);
 }
 
 function signedArea(points) {
