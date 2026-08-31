@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>C2D to GRBL G-code</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="layout">
+    <section id="upload-view" class="upload-view">
+      <label class="upload-card" for="file-input">
+        <p class="eyebrow">Carbide Create</p>
+        <h1>C2D to GRBL G-code</h1>
+        <p class="lede">
+          Drop in a <code>.c2d</code> file and generate GRBL G-code directly from the toolpaths embedded in the file.
+        </p>
+        <span class="upload-cta">Select a C2D file</span>
+        <span class="upload-hint">Uses feedrate, plunge rate, RPM, depths and retract from the file.</span>
+      </label>
+      <input id="file-input" class="file-input" type="file" accept=".c2d,.json,application/octet-stream,application/json">
+      <p id="status" class="status">No file loaded.</p>
+    </section>
+
+    <section id="result-view" class="results hidden">
+      <section class="panel summary-panel">
+        <h2>Summary</h2>
+        <div id="summary" class="summary empty">Load a file to inspect its content and toolpaths.</div>
+      </section>
+
+      <section class="panel toolpaths-panel">
+        <h2>Toolpaths</h2>
+        <div id="toolpaths" class="toolpaths empty">Load a file to manage toolpath visibility.</div>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="section-head">
+          <h2>2D Preview</h2>
+          <p>Gray: source geometry. Colors: generated G-code toolpaths.</p>
+        </div>
+        <div id="preview" class="preview empty">The preview will appear here.</div>
+        <div id="player" class="player hidden" aria-label="G-code player controls">
+          <div class="transport-controls">
+            <button id="rewind-btn" class="transport-btn" type="button" aria-label="Rewind 5 seconds">-5s</button>
+            <button id="play-pause-btn" class="transport-btn primary" type="button" aria-label="Play">Play</button>
+            <button id="forward-btn" class="transport-btn" type="button" aria-label="Forward 5 seconds">+5s</button>
+          </div>
+          <label class="speed-control" for="speed-select">
+            <span>Speed</span>
+            <select id="speed-select">
+              <option value="0.25">0.25x</option>
+              <option value="0.5">0.5x</option>
+              <option value="1" selected>1x</option>
+              <option value="2">2x</option>
+              <option value="4">4x</option>
+              <option value="8">8x</option>
+              <option value="16">16x</option>
+              <option value="32">32x</option>
+            </select>
+          </label>
+          <div id="time-indicator" class="time-indicator">00:00 / 00:00</div>
+        </div>
+      </section>
+
+      <section class="panel output-panel">
+        <div class="section-head">
+          <h2>G-code</h2>
+          <div class="output-actions">
+            <p>Absolute GRBL output in millimeters.</p>
+            <button id="download-btn" class="download-btn" disabled>Download G-code</button>
+          </div>
+        </div>
+        <textarea id="gcode-output" spellcheck="false" placeholder="Generated G-code will appear here."></textarea>
+      </section>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
