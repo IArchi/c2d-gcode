@@ -451,8 +451,67 @@ function generateGcode(parsed, fileName) {
   lines.push(`G0 Z${formatNumber(safeZ)}`);
 
   let currentSpindle = null;
+  let currentFeedRate = null;
   let cutCount = 0;
   let skippedToolpaths = 0;
+
+  function emitRapid(target, color) {
+    const next = {
+      x: target.x ?? motionState.x,
+      y: target.y ?? motionState.y,
+      z: target.z ?? motionState.z,
+    };
+    const parts = [];
+    if (!numbersEqual(next.x, motionState.x)) parts.push(`X${formatNumber(next.x)}`);
+    if (!numbersEqual(next.y, motionState.y)) parts.push(`Y${formatNumber(next.y)}`);
+    if (!numbersEqual(next.z, motionState.z)) parts.push(`Z${formatNumber(next.z)}`);
+    if (!parts.length) {
+      return;
+    }
+    lines.push(`G0 ${parts.join(" ")}`);
+    motionState = appendPlaybackMotion(playbackSegments, motionState, next, RAPID_RATE_MM_PER_MIN, "rapid", color);
+  }
+
+  function emitFeedChange(rate) {
+    if (numbersEqual(currentFeedRate, rate)) {
+      return;
+    }
+    lines.push(`G1 F${formatNumber(rate)}`);
+    currentFeedRate = rate;
+  }
+
+  function emitPlunge(z, rate, color) {
+    if (numbersEqual(z, motionState.z)) {
+      return;
+    }
+    const command = currentFeedRate === null || !numbersEqual(currentFeedRate, rate)
+      ? `G1 Z${formatNumber(z)} F${formatNumber(rate)}`
+      : `G1 Z${formatNumber(z)}`;
+    lines.push(command);
+    currentFeedRate = rate;
+    motionState = appendPlaybackMotion(playbackSegments, motionState, {
+      x: motionState.x,
+      y: motionState.y,
+      z,
+    }, rate, "plunge", color);
+  }
+
+  function emitCut(point, rate, color) {
+    const [x, y] = point;
+    const parts = [];
+    if (!numbersEqual(x, motionState.x)) parts.push(`X${formatNumber(x)}`);
+    if (!numbersEqual(y, motionState.y)) parts.push(`Y${formatNumber(y)}`);
+    if (!parts.length) {
+      return;
+    }
+    emitFeedChange(rate);
+    lines.push(`G1 ${parts.join(" ")}`);
+    motionState = appendPlaybackMotion(playbackSegments, motionState, {
+      x,
+      y,
+      z: motionState.z,
+    }, rate, "cut", color);
+  }
 
   for (const toolpath of activeToolpaths) {
     if ((toolpath.type || "contour") !== "contour") {
@@ -501,6 +560,8 @@ function generateGcode(parsed, fileName) {
       continue;
     }
 
+    const optimizedPaths = optimizePathSequence(resolvedPaths, [motionState.x, motionState.y]);
+
     if (spindle !== currentSpindle) {
       currentSpindle = spindle;
       if (spindle > 0) {
@@ -521,90 +582,38 @@ function generateGcode(parsed, fileName) {
     previewPaths.push({
       name: toolpath.name || toolpath.uuid,
       color: toolpath.color || PREVIEW_COLORS[0],
-      paths: resolvedPaths,
+      paths: optimizedPaths,
     });
 
-    for (const path of resolvedPaths) {
+    for (const path of optimizedPaths) {
       if (path.points.length < 2) {
         continue;
       }
       const startPoint = path.points[0];
-      lines.push(`G0 Z${formatNumber(safeZ)}`);
-      motionState = appendPlaybackMotion(playbackSegments, motionState, {
-        x: motionState.x,
-        y: motionState.y,
-        z: safeZ,
-      }, RAPID_RATE_MM_PER_MIN, "rapid", toolpath.color);
-      lines.push(`G0 X${formatNumber(startPoint[0])} Y${formatNumber(startPoint[1])}`);
-      motionState = appendPlaybackMotion(playbackSegments, motionState, {
-        x: startPoint[0],
-        y: startPoint[1],
-        z: safeZ,
-      }, RAPID_RATE_MM_PER_MIN, "rapid", toolpath.color);
+      emitRapid({ z: safeZ }, toolpath.color);
+      emitRapid({ x: startPoint[0], y: startPoint[1] }, toolpath.color);
 
       for (const [passIndex, passDepth] of depthPasses.entries()) {
         if (passIndex > 0 && !path.closed) {
-          lines.push(`G0 Z${formatNumber(safeZ)}`);
-          motionState = appendPlaybackMotion(playbackSegments, motionState, {
-            x: motionState.x,
-            y: motionState.y,
-            z: safeZ,
-          }, RAPID_RATE_MM_PER_MIN, "rapid", toolpath.color);
-          lines.push(`G0 X${formatNumber(startPoint[0])} Y${formatNumber(startPoint[1])}`);
-          motionState = appendPlaybackMotion(playbackSegments, motionState, {
-            x: startPoint[0],
-            y: startPoint[1],
-            z: safeZ,
-          }, RAPID_RATE_MM_PER_MIN, "rapid", toolpath.color);
+          emitRapid({ z: safeZ }, toolpath.color);
+          emitRapid({ x: startPoint[0], y: startPoint[1] }, toolpath.color);
         }
         cutCount += 1;
-        lines.push(`G1 Z${formatNumber(-passDepth)} F${formatNumber(plunge)}`);
-        motionState = appendPlaybackMotion(playbackSegments, motionState, {
-          x: startPoint[0],
-          y: startPoint[1],
-          z: -passDepth,
-        }, plunge, "plunge", toolpath.color);
-        lines.push(`G1 F${formatNumber(feed)}`);
+        emitPlunge(-passDepth, plunge, toolpath.color);
         for (let index = 1; index < path.points.length; index += 1) {
-          const point = path.points[index];
-          lines.push(`G1 X${formatNumber(point[0])} Y${formatNumber(point[1])}`);
-          motionState = appendPlaybackMotion(playbackSegments, motionState, {
-            x: point[0],
-            y: point[1],
-            z: -passDepth,
-          }, feed, "cut", toolpath.color);
+          emitCut(path.points[index], feed, toolpath.color);
         }
         if (path.closed) {
-          lines.push(`G1 X${formatNumber(startPoint[0])} Y${formatNumber(startPoint[1])}`);
-          motionState = appendPlaybackMotion(playbackSegments, motionState, {
-            x: startPoint[0],
-            y: startPoint[1],
-            z: -passDepth,
-          }, feed, "cut", toolpath.color);
+          emitCut(startPoint, feed, toolpath.color);
         }
       }
 
-      lines.push(`G0 Z${formatNumber(safeZ)}`);
-      motionState = appendPlaybackMotion(playbackSegments, motionState, {
-        x: motionState.x,
-        y: motionState.y,
-        z: safeZ,
-      }, RAPID_RATE_MM_PER_MIN, "rapid", toolpath.color);
+      emitRapid({ z: safeZ }, toolpath.color);
     }
   }
 
-  lines.push(`G0 X0 Y0`);
-  motionState = appendPlaybackMotion(playbackSegments, motionState, {
-    x: 0,
-    y: 0,
-    z: motionState.z,
-  }, RAPID_RATE_MM_PER_MIN, "rapid", null);
-  lines.push(`G0 Z${formatNumber(safeZ)}`);
-  motionState = appendPlaybackMotion(playbackSegments, motionState, {
-    x: 0,
-    y: 0,
-    z: safeZ,
-  }, RAPID_RATE_MM_PER_MIN, "rapid", null);
+  emitRapid({ x: 0, y: 0 }, null);
+  emitRapid({ z: safeZ }, null);
   if (currentSpindle !== null && currentSpindle > 0) {
     lines.push("M5");
   }
@@ -979,6 +988,80 @@ function runClipperOffset(points, delta) {
     closed: true,
     points: path.map((point) => [point.X / CLIPPER_SCALE, point.Y / CLIPPER_SCALE]),
   }));
+}
+
+function optimizePathSequence(paths, startPoint) {
+  const remaining = paths.slice();
+  const optimized = [];
+  let cursor = startPoint;
+
+  while (remaining.length) {
+    let bestIndex = 0;
+    let bestPath = orientPathForNearestStart(remaining[0], cursor);
+    let bestDistance = pointDistance(cursor, bestPath.points[0]);
+
+    for (let index = 1; index < remaining.length; index += 1) {
+      const candidate = orientPathForNearestStart(remaining[index], cursor);
+      const distance = pointDistance(cursor, candidate.points[0]);
+      if (distance < bestDistance) {
+        bestIndex = index;
+        bestPath = candidate;
+        bestDistance = distance;
+      }
+    }
+
+    optimized.push(bestPath);
+    remaining.splice(bestIndex, 1);
+    cursor = bestPath.closed ? bestPath.points[0] : bestPath.points[bestPath.points.length - 1];
+  }
+
+  return optimized;
+}
+
+function orientPathForNearestStart(path, referencePoint) {
+  if (!path.points?.length) {
+    return path;
+  }
+
+  if (path.closed) {
+    return rotateClosedPath(path, findNearestPointIndex(path.points, referencePoint));
+  }
+
+  const firstPoint = path.points[0];
+  const lastPoint = path.points[path.points.length - 1];
+  return pointDistance(referencePoint, lastPoint) < pointDistance(referencePoint, firstPoint)
+    ? reversePath(path)
+    : path;
+}
+
+function rotateClosedPath(path, startIndex) {
+  if (!path.points?.length || startIndex <= 0) {
+    return path;
+  }
+  return {
+    ...path,
+    points: path.points.slice(startIndex).concat(path.points.slice(0, startIndex)),
+  };
+}
+
+function reversePath(path) {
+  return {
+    ...path,
+    points: path.points.slice().reverse(),
+  };
+}
+
+function findNearestPointIndex(points, referencePoint) {
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length; index += 1) {
+    const distance = pointDistance(points[index], referencePoint);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
 }
 
 function buildDepthPasses(startDepth, endDepth, stepdown) {
@@ -1396,6 +1479,10 @@ function normalizePaths(paths) {
 
 function pointDistance(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+function numbersEqual(a, b, epsilon = 1e-6) {
+  return Math.abs(a - b) <= epsilon;
 }
 
 function removeClosingDuplicate(points) {
