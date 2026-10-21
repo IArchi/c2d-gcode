@@ -1,4 +1,3 @@
-const LIB_SQL_WASM_BASE = "./vendor/sql.js-1.13.0/";
 const PREVIEW_COLORS = [
   "#087f8c",
   "#315fc4",
@@ -70,9 +69,7 @@ bootstrap().catch((error) => {
 });
 
 async function bootstrap() {
-  state.sql = await window.initSqlJs({
-    locateFile: (file) => `${LIB_SQL_WASM_BASE}${file}`,
-  });
+  state.sql = await window.initSqlJs();
 
   refs.fileInput.addEventListener("change", handleFileSelection);
   refs.downloadBtn.addEventListener("click", downloadGcode);
