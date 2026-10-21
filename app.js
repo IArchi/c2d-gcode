@@ -601,6 +601,9 @@ function generateGcode(parsed, fileName) {
     const endDepth = Math.max(startDepth, toNumber(toolpath.end_depth, startDepth));
     const stepdown = Math.max(0.001, sanitizePositiveNumber(toolpath.stepdown, Math.max(endDepth - startDepth, 0.001)));
     const depthPasses = buildDepthPasses(startDepth, endDepth, stepdown);
+    const tabWidth = Math.max(0, toNumber(toolpath.tab_width, 0));
+    const tabHeight = Math.max(0, toNumber(toolpath.tab_height, 0));
+    const useTabs = !toolpath.ignore_tabs && tabWidth > 0 && tabHeight > 0;
     const elementRefs = toolpath.elements || [];
     const resolvedPaths = [];
 
@@ -620,7 +623,12 @@ function generateGcode(parsed, fileName) {
         const transformed = translateForWorkZero(path, zeroX, zeroY);
         const offsetPaths = offsetAmount > 0 ? offsetClosedPath(transformed, offsetAmount, offsetDirection, warnings, toolpath.name || toolpath.uuid) : [transformed];
         for (const offsetPath of offsetPaths) {
-          resolvedPaths.push(offsetPath);
+          resolvedPaths.push({
+            ...offsetPath,
+            tabs: useTabs ? (element.tabs || []).map((tab) => tab.pos)
+              .filter((pos) => Array.isArray(pos) && pos.length === 2 && pos.every(Number.isFinite))
+              .map(([x, y]) => [x - zeroX, y - zeroY]) : [],
+          });
         }
       }
     }
@@ -642,9 +650,6 @@ function generateGcode(parsed, fileName) {
     lines.push(`(Toolpath: ${toolpath.name || toolpath.uuid})`);
     lines.push(`(Offset: ${offsetDirectionLabel(offsetDirection)}, start ${formatNumber(startDepth)}mm, end ${formatNumber(endDepth)}mm, stepdown ${formatNumber(stepdown)}mm)`);
 
-    if (!toolpath.ignore_tabs && hasTabs(parsed, toolpath)) {
-      warnings.push(`Toolpath "${toolpath.name || toolpath.uuid}": tabs were detected but are not interpreted yet, continuous cutting was generated.`);
-    }
     if (toolpath.enable_ramping) {
       warnings.push(`Toolpath "${toolpath.name || toolpath.uuid}": ramping was requested but is not implemented yet, so a vertical plunge was used.`);
     }
@@ -660,6 +665,10 @@ function generateGcode(parsed, fileName) {
         continue;
       }
       const startPoint = path.points[0];
+      // Include the cutter diameter so the remaining material has the requested tab width.
+      const tabSegments = path.tabs.length ? buildTabSegments(path, tabWidth + toolRadius * 2) : [];
+      const tabDepth = Math.max(0, endDepth - tabHeight);
+      path.tabSegments = tabSegments.filter((segment) => segment.isTab);
       emitRapid({ z: safeZ }, toolpath.color);
       emitRapid({ x: startPoint[0], y: startPoint[1] }, toolpath.color);
 
@@ -669,12 +678,20 @@ function generateGcode(parsed, fileName) {
           emitRapid({ x: startPoint[0], y: startPoint[1] }, toolpath.color);
         }
         cutCount += 1;
-        emitPlunge(-passDepth, plunge, toolpath.color);
-        for (let index = 1; index < path.points.length; index += 1) {
-          emitCut(path.points[index], feed, toolpath.color);
-        }
-        if (path.closed) {
-          emitCut(startPoint, feed, toolpath.color);
+        if (tabSegments.length && passDepth > tabDepth) {
+          for (const segment of tabSegments) {
+            const depth = segment.isTab ? tabDepth : passDepth;
+            emitPlunge(-depth, plunge, toolpath.color);
+            emitCut(segment.end, feed, toolpath.color);
+          }
+        } else {
+          emitPlunge(-passDepth, plunge, toolpath.color);
+          for (let index = 1; index < path.points.length; index += 1) {
+            emitCut(path.points[index], feed, toolpath.color);
+          }
+          if (path.closed) {
+            emitCut(startPoint, feed, toolpath.color);
+          }
         }
       }
 
@@ -711,11 +728,73 @@ function generateGcode(parsed, fileName) {
   };
 }
 
-function hasTabs(parsed, toolpath) {
-  return (toolpath.elements || []).some((ref) => {
-    const element = parsed.elementsByUuid.get(ref.uuid);
-    return Array.isArray(element?.tabs) && element.tabs.length > 0;
-  });
+function buildTabSegments(path, width) {
+  const edges = [];
+  let length = 0;
+  const edgeCount = path.closed ? path.points.length : path.points.length - 1;
+  for (let index = 0; index < edgeCount; index += 1) {
+    const start = path.points[index];
+    const end = path.points[(index + 1) % path.points.length];
+    const edgeLength = pointDistance(start, end);
+    if (edgeLength > 1e-6) {
+      edges.push({ start, end, offset: length, length: edgeLength });
+      length += edgeLength;
+    }
+  }
+
+  const intervals = [];
+  for (const center of path.tabs || []) {
+    let nearestDistance = Infinity;
+    let position = 0;
+    for (const edge of edges) {
+      const dx = edge.end[0] - edge.start[0];
+      const dy = edge.end[1] - edge.start[1];
+      const t = clamp(((center[0] - edge.start[0]) * dx + (center[1] - edge.start[1]) * dy) / edge.length ** 2, 0, 1);
+      const distance = pointDistance(center, [edge.start[0] + t * dx, edge.start[1] + t * dy]);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        position = edge.offset + t * edge.length;
+      }
+    }
+    if (path.closed && width >= length) {
+      intervals.push([0, length]);
+    } else {
+      const start = position - width / 2;
+      const end = position + width / 2;
+      intervals.push([Math.max(0, start), Math.min(length, end)]);
+      if (path.closed && start < 0) intervals.push([length + start, length]);
+      if (path.closed && end > length) intervals.push([0, end - length]);
+    }
+  }
+
+  const segments = [];
+  for (const edge of edges) {
+    const boundaries = [edge.offset, edge.offset + edge.length];
+    for (const interval of intervals) {
+      for (const boundary of interval) {
+        if (boundary > edge.offset && boundary < edge.offset + edge.length) {
+          boundaries.push(boundary);
+        }
+      }
+    }
+    boundaries.sort((a, b) => a - b);
+    const pointAt = (distance) => {
+      const t = (distance - edge.offset) / edge.length;
+      return [edge.start[0] + t * (edge.end[0] - edge.start[0]), edge.start[1] + t * (edge.end[1] - edge.start[1])];
+    };
+    for (let index = 1; index < boundaries.length; index += 1) {
+      const start = boundaries[index - 1];
+      const end = boundaries[index];
+      if (end - start <= 1e-6) continue;
+      const middle = (start + end) / 2;
+      segments.push({
+        start: pointAt(start),
+        end: pointAt(end),
+        isTab: intervals.some(([from, to]) => middle >= from && middle <= to),
+      });
+    }
+  }
+  return segments;
 }
 
 function translateForWorkZero(path, zeroX, zeroY) {
@@ -1325,6 +1404,15 @@ function renderPreview(parsed, generated) {
       element.setAttribute("stroke", color);
       element.setAttribute("d", polylineToSvgPath(path));
       svg.appendChild(element);
+      for (const segment of path.tabSegments || []) {
+        const tab = document.createElementNS(SVG_NS, "path");
+        tab.setAttribute("class", "toolpath-tab");
+        tab.setAttribute("d", polylineToSvgPath({ points: [segment.start, segment.end] }));
+        const title = document.createElementNS(SVG_NS, "title");
+        title.textContent = "Holding tab";
+        tab.appendChild(title);
+        svg.appendChild(tab);
+      }
     }
   });
 

@@ -614,6 +614,13 @@ textarea {
   opacity: 0.6;
 }
 
+.preview .toolpath-tab {
+  fill: none;
+  stroke: #e0af68;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
 .preview .toolpath-progress {
   fill: none;
   stroke-width: 1.5;
