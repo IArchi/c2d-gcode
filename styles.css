@@ -272,6 +272,26 @@ textarea {
   padding: 14px;
 }
 
+.tool-coordinates {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fffaf3;
+  font-family: "SFMono-Regular", ui-monospace, monospace;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.tool-coordinates output {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .toolpaths {
   flex: 1 1 auto;
   min-height: 0;
@@ -580,9 +600,11 @@ textarea {
 
 .preview svg {
   width: 100%;
-  height: 100%;
-  min-height: 520px;
+  height: clamp(360px, 60vh, 640px);
   display: block;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   background:
     linear-gradient(rgba(124, 108, 89, 0.08) 1px, transparent 1px),
     linear-gradient(90deg, rgba(124, 108, 89, 0.08) 1px, transparent 1px),
@@ -591,53 +613,144 @@ textarea {
   border-radius: 12px;
 }
 
+.preview svg.panning {
+  cursor: grabbing;
+}
+
+.preview-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.preview-toolbar output {
+  min-width: 5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+.preview-toolbar span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .preview .frame {
-  fill: rgba(121, 184, 174, 0.08);
-  stroke: rgba(121, 184, 174, 0.34);
-  stroke-width: 0.4;
+  fill: rgba(121, 184, 174, 0.04);
+  stroke: #8b9e96;
+  stroke-width: 1.5;
 }
 
 .preview .source {
   fill: none;
-  stroke: rgba(67, 58, 49, 0.34);
-  stroke-width: 0.35;
+  stroke: #92867a;
+  stroke-width: 1.25;
 }
 
 .preview .toolpath {
   fill: none;
-  stroke-width: 0.65;
+  stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .preview .toolpath-base {
-  opacity: 0.6;
+  opacity: 0.85;
 }
 
 .preview .toolpath-tab {
   fill: none;
-  stroke: #e0af68;
-  stroke-width: 2.5;
+  stroke: #946515;
+  stroke-width: 4;
   stroke-linecap: round;
 }
 
 .preview .toolpath-progress {
   fill: none;
-  stroke-width: 1.5;
+  stroke-width: 3.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .preview .tool-head {
-  fill: #fffdfa;
-  stroke: #8d7f6f;
-  stroke-width: 0.45;
+  pointer-events: none;
+}
+
+.preview .tool-head-halo {
+  fill: #fff;
+  fill-opacity: 0.9;
+}
+
+.preview .tool-head-ring {
+  fill: #ea580c;
+  fill-opacity: 0.16;
+  stroke: #c2410c;
+  stroke-width: 2.5;
+}
+
+.preview .tool-head-crosshair {
+  fill: none;
+  stroke: #9a3412;
+  stroke-width: 2;
+}
+
+.preview .tool-head-center {
+  fill: #c2410c;
+}
+
+.preview .origin-marker {
+  pointer-events: none;
+}
+
+.preview .origin-marker-ring {
+  fill: #fff;
+  stroke: #433a31;
+  stroke-width: 2;
+}
+
+.preview .origin-marker-crosshair {
+  fill: none;
+  stroke: #433a31;
+  stroke-width: 1.5;
+}
+
+.preview .origin-marker-label {
+  fill: #433a31;
+  stroke: #fff;
+  stroke-width: 4;
+  paint-order: stroke;
+  stroke-linejoin: round;
+  font: 700 13px ui-monospace, monospace;
+}
+
+.tool-position-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #9a3412;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.tool-position-key::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid #c2410c;
+  border-radius: 50%;
+  background: #ffedd5;
 }
 
 .preview .origin {
-  stroke: rgba(126, 114, 101, 0.45);
-  stroke-width: 0.3;
-  stroke-dasharray: 2 2;
+  stroke: #9c9083;
+  stroke-width: 1;
+  stroke-dasharray: 5 5;
+}
+
+.preview :is(.frame, .source, .toolpath, .toolpath-tab, .toolpath-progress, .origin) {
+  vector-effect: non-scaling-stroke;
 }
 
 @media (max-width: 1080px) {

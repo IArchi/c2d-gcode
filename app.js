@@ -1,13 +1,13 @@
-const LIB_SQL_WASM_BASE = "https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/";
+const LIB_SQL_WASM_BASE = "./vendor/sql.js-1.13.0/";
 const PREVIEW_COLORS = [
-  "#4fd1c5",
-  "#7aa2ff",
-  "#ff9f6e",
-  "#f7768e",
-  "#9ece6a",
-  "#bb9af7",
-  "#e0af68",
-  "#73daca",
+  "#087f8c",
+  "#315fc4",
+  "#b6531d",
+  "#be3455",
+  "#4f7c25",
+  "#8050b5",
+  "#946515",
+  "#167561",
 ];
 const SVG_NS = "http://www.w3.org/2000/svg";
 const CLIPPER_SCALE = 100000;
@@ -39,12 +39,19 @@ const refs = {
   summary: document.getElementById("summary"),
   toolpaths: document.getElementById("toolpaths"),
   preview: document.getElementById("preview"),
+  zoomInBtn: document.getElementById("zoom-in-btn"),
+  zoomOutBtn: document.getElementById("zoom-out-btn"),
+  zoomFitBtn: document.getElementById("zoom-fit-btn"),
+  zoomLevel: document.getElementById("zoom-level"),
   player: document.getElementById("player"),
   rewindBtn: document.getElementById("rewind-btn"),
   playPauseBtn: document.getElementById("play-pause-btn"),
   forwardBtn: document.getElementById("forward-btn"),
   speedSelect: document.getElementById("speed-select"),
   timeIndicator: document.getElementById("time-indicator"),
+  toolX: document.getElementById("tool-x"),
+  toolY: document.getElementById("tool-y"),
+  toolZ: document.getElementById("tool-z"),
   output: document.getElementById("gcode-output"),
   downloadBtn: document.getElementById("download-btn"),
   toolpathModal: document.getElementById("toolpath-modal"),
@@ -88,6 +95,10 @@ async function bootstrap() {
     }
   });
   updatePlayerUI();
+  refs.zoomInBtn.addEventListener("click", () => zoomPreview(1.25));
+  refs.zoomOutBtn.addEventListener("click", () => zoomPreview(1 / 1.25));
+  refs.zoomFitBtn.addEventListener("click", resetPreviewView);
+  new ResizeObserver(updatePreviewMarkers).observe(refs.preview);
 }
 
 async function handleFileSelection(event) {
@@ -265,6 +276,12 @@ function updatePlayerUI() {
   refs.playPauseBtn.textContent = state.playback.isPlaying ? "Pause" : "Play";
   refs.playPauseBtn.setAttribute("aria-label", state.playback.isPlaying ? "Pause" : "Play");
   refs.timeIndicator.textContent = `${formatDuration(state.playback.currentTimeSec)} / ${formatDuration(state.playback.totalTimeSec)}`;
+  const position = state.generated
+    ? getPlaybackPosition(state.generated.playbackSegments, state.playback.currentTimeSec)
+    : { x: 0, y: 0, z: 0 };
+  refs.toolX.textContent = position.x.toFixed(3);
+  refs.toolY.textContent = position.y.toFixed(3);
+  refs.toolZ.textContent = position.z.toFixed(3);
 }
 
 async function parseC2D(bytes, fileName) {
@@ -1364,6 +1381,7 @@ function renderPreview(parsed, generated) {
   }
 
   if (!allPoints.length) {
+    state.previewRender = null;
     refs.preview.className = "preview empty";
     refs.preview.textContent = "No usable geometry is available to display.";
     return;
@@ -1419,19 +1437,104 @@ function renderPreview(parsed, generated) {
   const progressLayer = document.createElementNS(SVG_NS, "g");
   svg.appendChild(progressLayer);
 
-  const toolHead = document.createElementNS(SVG_NS, "circle");
+  const originMarker = document.createElementNS(SVG_NS, "g");
+  originMarker.setAttribute("class", "origin-marker");
+  originMarker.innerHTML = `
+    <title>Work origin (0,0)</title>
+    <circle class="origin-marker-ring" r="6" />
+    <path class="origin-marker-crosshair" d="M -10 0 H 10 M 0 -10 V 10" />
+    <text class="origin-marker-label" x="20" y="-20">0,0</text>
+  `;
+  svg.appendChild(originMarker);
+
+  const toolHead = document.createElementNS(SVG_NS, "g");
   toolHead.setAttribute("class", "tool-head");
-  toolHead.setAttribute("r", "2.4");
+  toolHead.innerHTML = `
+    <title>Tool position</title>
+    <circle class="tool-head-halo" r="14" />
+    <circle class="tool-head-ring" r="9" />
+    <path class="tool-head-crosshair" d="M -18 0 H -5 M 5 0 H 18 M 0 -18 V -5 M 0 5 V 18" />
+    <circle class="tool-head-center" r="3" />
+  `;
   svg.appendChild(toolHead);
 
   refs.preview.className = "preview";
   refs.preview.replaceChildren(svg);
   state.previewRender = {
+    svg,
+    initialView: { x: bounds.minX, y: -bounds.maxY, width: bounds.width, height: bounds.height },
+    view: { x: bounds.minX, y: -bounds.maxY, width: bounds.width, height: bounds.height },
+    originMarker,
     progressLayer,
     toolHead,
     generated,
   };
+  refs.zoomLevel.textContent = "100%";
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const anchor = point.matrixTransform(matrix.inverse());
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? svg.clientHeight : 1);
+    zoomPreview(Math.exp(-clamp(delta, -100, 100) * 0.01), anchor);
+  }, { passive: false });
+  let drag = null;
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || drag) return;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    event.preventDefault();
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY,
+      view: { ...state.previewRender.view }, scale: Math.hypot(matrix.a, matrix.b) };
+    svg.setPointerCapture(event.pointerId);
+    svg.classList.add("panning");
+  });
+  svg.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    state.previewRender.view.x = drag.view.x - (event.clientX - drag.x) / drag.scale;
+    state.previewRender.view.y = drag.view.y - (event.clientY - drag.y) / drag.scale;
+    updatePreviewView();
+  });
+  const endDrag = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag = null;
+    svg.classList.remove("panning");
+    if (svg.hasPointerCapture(event.pointerId)) svg.releasePointerCapture(event.pointerId);
+  };
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointercancel", endDrag);
+  svg.addEventListener("lostpointercapture", endDrag);
   updatePlaybackVisualization();
+}
+
+function zoomPreview(factor, anchor) {
+  if (!state.previewRender) return;
+  const { view, initialView } = state.previewRender;
+  const zoom = initialView.width / view.width;
+  const nextZoom = clamp(zoom * factor, 0.5, 40);
+  const ratio = zoom / nextZoom;
+  const center = anchor || { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+  view.x = center.x + (view.x - center.x) * ratio;
+  view.y = center.y + (view.y - center.y) * ratio;
+  view.width *= ratio;
+  view.height *= ratio;
+  updatePreviewView();
+}
+
+function resetPreviewView() {
+  if (!state.previewRender) return;
+  state.previewRender.view = { ...state.previewRender.initialView };
+  updatePreviewView();
+}
+
+function updatePreviewView() {
+  const { svg, view, initialView } = state.previewRender;
+  svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.width} ${view.height}`);
+  refs.zoomLevel.textContent = `${Math.round(initialView.width / view.width * 100)}%`;
+  updatePreviewMarkers();
 }
 
 function computePreviewBounds(parsed, points, padding = 0) {
@@ -1469,14 +1572,31 @@ function collectVisibleElementUUIDs(parsed) {
   return visibleUUIDs;
 }
 
-function updatePlaybackVisualization() {
+function updatePreviewMarkers() {
   if (!state.previewRender || !state.generated) {
     return;
   }
 
-  const { progressLayer, toolHead, generated } = state.previewRender;
-  const segmentsByColor = new Map();
+  const { svg, originMarker, toolHead, generated } = state.previewRender;
+  // Keep position markers the same size on screen, regardless of stock size or viewport.
+  const matrix = svg.getScreenCTM();
+  const scale = matrix ? Math.hypot(matrix.a, matrix.b) : 0;
+  const markerScale = scale > 0 ? 1 / scale : 1;
+  originMarker.setAttribute("transform", `scale(${markerScale})`);
   const currentPosition = getPlaybackPosition(generated.playbackSegments, state.playback.currentTimeSec);
+  if (currentPosition) {
+    toolHead.setAttribute("transform", `translate(${formatNumber(currentPosition.x)} ${formatNumber(-currentPosition.y)}) scale(${markerScale})`);
+    toolHead.style.display = "";
+  } else {
+    toolHead.style.display = "none";
+  }
+}
+
+function updatePlaybackVisualization() {
+  if (!state.previewRender || !state.generated) return;
+  updatePreviewMarkers();
+  const { progressLayer, generated } = state.previewRender;
+  const segmentsByColor = new Map();
 
   for (const segment of generated.playbackSegments) {
     if (segment.motionType !== "cut") {
@@ -1512,14 +1632,6 @@ function updatePlaybackVisualization() {
     fragment.appendChild(element);
   });
   progressLayer.replaceChildren(fragment);
-
-  if (currentPosition) {
-    toolHead.setAttribute("cx", formatNumber(currentPosition.x));
-    toolHead.setAttribute("cy", formatNumber(-currentPosition.y));
-    toolHead.style.display = "";
-  } else {
-    toolHead.style.display = "none";
-  }
 }
 
 function polylineToSvgPath(path) {

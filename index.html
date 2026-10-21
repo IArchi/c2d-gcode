@@ -37,6 +37,14 @@
       <section class="panel preview-panel">
         <div class="section-head">
           <h2>2D Preview</h2>
+          <span class="tool-position-key">Tool position</span>
+        </div>
+        <div class="preview-toolbar" role="group" aria-label="Preview navigation">
+          <button id="zoom-out-btn" class="secondary-btn" type="button" aria-label="Zoom out">&minus;</button>
+          <output id="zoom-level" aria-live="polite">100%</output>
+          <button id="zoom-in-btn" class="secondary-btn" type="button" aria-label="Zoom in">+</button>
+          <button id="zoom-fit-btn" class="secondary-btn" type="button">Fit</button>
+          <span>Scroll to zoom &middot; Drag to pan</span>
         </div>
         <div id="preview" class="preview empty">The preview will appear here.</div>
         <div id="player" class="player hidden" aria-label="G-code player controls">
@@ -59,6 +67,11 @@
             </select>
           </label>
           <div id="time-indicator" class="time-indicator">00:00 / 00:00</div>
+          <div class="tool-coordinates" role="group" aria-label="Tool coordinates in millimeters">
+            <span>X <output id="tool-x">0.000</output> mm</span>
+            <span>Y <output id="tool-y">0.000</output> mm</span>
+            <span>Z <output id="tool-z">0.000</output> mm</span>
+          </div>
         </div>
       </section>
 
@@ -110,9 +123,9 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/clipper-lib@6.4.2/clipper.min.js"></script>
+  <script src="./vendor/sql.js-1.13.0/sql-wasm.min.js"></script>
+  <script src="./vendor/pako-2.1.0/pako.min.js"></script>
+  <script src="./vendor/clipper-lib-6.4.2/clipper.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
