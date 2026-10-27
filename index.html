@@ -37,7 +37,6 @@
       <section class="panel preview-panel">
         <div class="section-head">
           <h2>2D Preview</h2>
-          <span class="tool-position-key">Tool position</span>
         </div>
         <div class="preview-toolbar" role="group" aria-label="Preview navigation">
           <button id="zoom-out-btn" class="secondary-btn" type="button" aria-label="Zoom out">&minus;</button>
@@ -46,15 +45,23 @@
           <button id="zoom-fit-btn" class="secondary-btn" type="button">Fit</button>
           <span>Scroll to zoom &middot; Drag to pan</span>
         </div>
-        <div id="preview" class="preview empty">The preview will appear here.</div>
+        <div class="preview-container">
+          <div id="preview" class="preview empty">The preview will appear here.</div>
+          <div class="tool-coordinates" role="group" aria-label="Tool coordinates in millimeters">
+            <span>X <output id="tool-x">0.000</output> mm</span>
+            <span>Y <output id="tool-y">0.000</output> mm</span>
+            <span>Z <output id="tool-z">0.000</output> mm</span>
+          </div>
+        </div>
         <div id="player" class="player hidden" aria-label="G-code player controls">
+          <input id="playback-progress" class="playback-progress" type="range" min="0" max="0" step="any" value="0" aria-label="Simulation position">
+          <button id="restart-btn" class="transport-btn" type="button" aria-label="Restart" title="Restart"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2.6 8.4M3 4v6h6" style="fill:none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           <div class="transport-controls">
-            <button id="rewind-btn" class="transport-btn" type="button" aria-label="Rewind 5 seconds">-5s</button>
-            <button id="play-pause-btn" class="transport-btn primary" type="button" aria-label="Play">Play</button>
-            <button id="forward-btn" class="transport-btn" type="button" aria-label="Forward 5 seconds">+5s</button>
+            <button id="rewind-btn" class="transport-btn" type="button" aria-label="Rewind 5 seconds" title="Rewind 5 seconds"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m11 5-8 7 8 7Zm10 0-8 7 8 7Z"/></svg><span>5s</span></button>
+            <button id="play-pause-btn" class="transport-btn primary" type="button" aria-label="Play" title="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="play-pause-icon" d="m8 5 11 7-11 7Z"/></svg></button>
+            <button id="forward-btn" class="transport-btn" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 5 8 7-8 7Zm10 0 8 7-8 7Z"/></svg><span>5s</span></button>
           </div>
           <label class="speed-control" for="speed-select">
-            <span>Speed</span>
             <select id="speed-select">
               <option value="0.25">0.25x</option>
               <option value="0.5">0.5x</option>
@@ -67,11 +74,6 @@
             </select>
           </label>
           <div id="time-indicator" class="time-indicator">00:00 / 00:00</div>
-          <div class="tool-coordinates" role="group" aria-label="Tool coordinates in millimeters">
-            <span>X <output id="tool-x">0.000</output> mm</span>
-            <span>Y <output id="tool-y">0.000</output> mm</span>
-            <span>Z <output id="tool-z">0.000</output> mm</span>
-          </div>
         </div>
       </section>
 
@@ -82,7 +84,7 @@
             <button id="download-btn" class="download-btn" disabled>Download G-code</button>
           </div>
         </div>
-        <textarea id="gcode-output" spellcheck="false" placeholder="Generated G-code will appear here."></textarea>
+        <textarea id="gcode-output" spellcheck="false" readonly wrap="off" aria-label="Generated G-code" placeholder="Generated G-code will appear here."></textarea>
       </section>
     </section>
   </main>
@@ -114,7 +116,16 @@
             <span>RPM</span>
             <input id="toolpath-rpm" name="rpm" type="number" min="0" step="1" required>
           </label>
+          <label>
+            <span>Entry into material</span>
+            <select id="toolpath-ramping" name="ramping" aria-describedby="ramp-help">
+              <option value="off">Vertical</option>
+              <option value="5">Ramp 5°</option>
+              <option value="20">Ramp 20°</option>
+            </select>
+          </label>
         </div>
+        <p id="ramp-help">A shallow angle (5°) gives a gentler entry for hard materials; a steeper angle (20°) is better suited to soft materials. Check your cutter's maximum ramp angle. Ramp length is calculated automatically for each pass. On short paths, the tool moves back and forth without crossing holding-tab boundaries. Entry speed is limited to the plunge rate.</p>
         <div class="modal-actions">
           <button id="toolpath-modal-cancel" class="secondary-btn" type="button">Cancel</button>
           <button class="download-btn" type="submit">Apply</button>

@@ -1,12 +1,16 @@
 const PREVIEW_COLORS = [
-  "#087f8c",
-  "#315fc4",
-  "#b6531d",
-  "#be3455",
-  "#4f7c25",
-  "#8050b5",
-  "#946515",
-  "#167561",
+  "#0057d9",
+  "#e64500",
+  "#008535",
+  "#a020c0",
+  "#b88a00",
+  "#00a0b0",
+  "#d92364",
+  "#56351e",
+  "#647800",
+  "#342080",
+  "#b55a80",
+  "#303030",
 ];
 const SVG_NS = "http://www.w3.org/2000/svg";
 const CLIPPER_SCALE = 100000;
@@ -25,6 +29,7 @@ const state = {
     totalTimeSec: 0,
     speed: 1,
     isPlaying: false,
+    hasStarted: false,
     rafId: null,
     lastFrameTime: 0,
   },
@@ -45,6 +50,9 @@ const refs = {
   player: document.getElementById("player"),
   rewindBtn: document.getElementById("rewind-btn"),
   playPauseBtn: document.getElementById("play-pause-btn"),
+  playPauseIcon: document.getElementById("play-pause-icon"),
+  restartBtn: document.getElementById("restart-btn"),
+  playbackProgress: document.getElementById("playback-progress"),
   forwardBtn: document.getElementById("forward-btn"),
   speedSelect: document.getElementById("speed-select"),
   timeIndicator: document.getElementById("time-indicator"),
@@ -61,6 +69,7 @@ const refs = {
   toolpathPlungerate: document.getElementById("toolpath-plungerate"),
   toolpathStepdown: document.getElementById("toolpath-stepdown"),
   toolpathRpm: document.getElementById("toolpath-rpm"),
+  toolpathRamping: document.getElementById("toolpath-ramping"),
 };
 
 bootstrap().catch((error) => {
@@ -73,9 +82,12 @@ async function bootstrap() {
 
   refs.fileInput.addEventListener("change", handleFileSelection);
   refs.downloadBtn.addEventListener("click", downloadGcode);
+  refs.output.addEventListener("scroll", updateGcodeHighlight);
   refs.rewindBtn.addEventListener("click", () => stepPlayback(-5));
   refs.playPauseBtn.addEventListener("click", togglePlayback);
   refs.forwardBtn.addEventListener("click", () => stepPlayback(5));
+  refs.restartBtn.addEventListener("click", () => seekPlayback(0));
+  refs.playbackProgress.addEventListener("input", () => seekPlayback(refs.playbackProgress.value));
   refs.speedSelect.addEventListener("change", () => {
     state.playback.speed = toNumber(refs.speedSelect.value, 1);
   });
@@ -133,6 +145,7 @@ function regenerate() {
   state.generated = generated;
   resetPlayback(generated.totalDurationSec);
   refs.output.value = generated.gcode;
+  updateGcodePosition();
   refs.downloadBtn.disabled = false;
   renderSummary(state.parsed, generated);
   renderToolpaths(state.parsed);
@@ -175,6 +188,7 @@ function openToolpathModal(toolpathUUID) {
   refs.toolpathPlungerate.value = formatNumber(sanitizePositiveNumber(toolpath.speeds?.plungerate, sanitizePositiveNumber(toolpath.speeds?.feedrate, 1)));
   refs.toolpathStepdown.value = formatNumber(Math.max(0.001, sanitizePositiveNumber(toolpath.stepdown, 0.001)));
   refs.toolpathRpm.value = String(Math.max(0, Math.round(toNumber(toolpath.speeds?.rpm, 0))));
+  refs.toolpathRamping.value = toolpath.enable_ramping ? String(toolpath.ramp_angle === 20 ? 20 : 5) : "off";
   refs.toolpathModal.classList.remove("hidden");
 }
 
@@ -198,6 +212,8 @@ function applyToolpathSettings(event) {
   toolpath.speeds.plungerate = sanitizePositiveNumber(refs.toolpathPlungerate.value, toolpath.speeds.feedrate);
   toolpath.stepdown = Math.max(0.001, sanitizePositiveNumber(refs.toolpathStepdown.value, Math.max(toNumber(toolpath.stepdown, 0.001), 0.001)));
   toolpath.speeds.rpm = Math.max(0, Math.round(toNumber(refs.toolpathRpm.value, toNumber(toolpath.speeds.rpm, 0))));
+  toolpath.enable_ramping = refs.toolpathRamping.value !== "off";
+  toolpath.ramp_angle = refs.toolpathRamping.value === "20" ? 20 : 5;
   closeToolpathModal();
   regenerate();
 }
@@ -205,6 +221,7 @@ function applyToolpathSettings(event) {
 function resetPlayback(totalTimeSec = 0) {
   stopPlayback();
   state.playback.currentTimeSec = 0;
+  state.playback.hasStarted = false;
   state.playback.totalTimeSec = Math.max(0, totalTimeSec);
   state.playback.lastFrameTime = 0;
   updatePlayerUI();
@@ -221,6 +238,8 @@ function togglePlayback() {
       state.playback.currentTimeSec = 0;
     }
     state.playback.isPlaying = true;
+    state.playback.hasStarted = true;
+    updatePlaybackVisualization();
     state.playback.lastFrameTime = 0;
     state.playback.rafId = window.requestAnimationFrame(playbackFrame);
     updatePlayerUI();
@@ -263,22 +282,73 @@ function playbackFrame(timestamp) {
 }
 
 function setPlaybackTime(nextTimeSec) {
+  state.playback.hasStarted = true;
   state.playback.currentTimeSec = clamp(nextTimeSec, 0, state.playback.totalTimeSec);
   updatePlayerUI();
   updatePlaybackVisualization();
 }
 
+function seekPlayback(value) {
+  if (!state.generated) return;
+  state.playback.lastFrameTime = 0;
+  setPlaybackTime(toNumber(value, 0));
+  if (state.playback.currentTimeSec >= state.playback.totalTimeSec) stopPlayback();
+}
+
 function updatePlayerUI() {
   refs.player.classList.toggle("hidden", !state.generated);
-  refs.playPauseBtn.textContent = state.playback.isPlaying ? "Pause" : "Play";
+  refs.playPauseIcon.setAttribute("d", state.playback.isPlaying ? "M6 5h4v14H6ZM14 5h4v14h-4Z" : "m8 5 11 7-11 7Z");
   refs.playPauseBtn.setAttribute("aria-label", state.playback.isPlaying ? "Pause" : "Play");
+  refs.playPauseBtn.title = state.playback.isPlaying ? "Pause" : "Play";
   refs.timeIndicator.textContent = `${formatDuration(state.playback.currentTimeSec)} / ${formatDuration(state.playback.totalTimeSec)}`;
+  refs.playbackProgress.max = String(state.playback.totalTimeSec);
+  refs.playbackProgress.value = String(state.playback.currentTimeSec);
+  refs.playbackProgress.disabled = !state.generated || state.playback.totalTimeSec <= 0;
+  refs.playbackProgress.setAttribute("aria-valuetext", refs.timeIndicator.textContent);
+  const progress = state.playback.totalTimeSec > 0 ? state.playback.currentTimeSec / state.playback.totalTimeSec * 100 : 0;
+  refs.playbackProgress.style.setProperty("--progress", `${progress}%`);
   const position = state.generated
     ? getPlaybackPosition(state.generated.playbackSegments, state.playback.currentTimeSec)
     : { x: 0, y: 0, z: 0 };
   refs.toolX.textContent = position.x.toFixed(3);
   refs.toolY.textContent = position.y.toFixed(3);
   refs.toolZ.textContent = position.z.toFixed(3);
+  updateGcodePosition();
+}
+
+function updateGcodePosition() {
+  const generated = state.generated;
+  if (!generated || !state.playback.hasStarted) {
+    refs.output.setSelectionRange(0, 0);
+    refs.output.style.backgroundImage = "none";
+    delete refs.output.dataset.activeLine;
+    return;
+  }
+  const segment = generated.playbackSegments.find((entry) => state.playback.currentTimeSec <= entry.endTimeSec)
+    || generated.playbackSegments.at(-1);
+  if (!segment) return;
+  const lineIndex = state.playback.currentTimeSec >= generated.totalDurationSec
+    ? generated.gcodeLines.length - 1 : segment.gcodeLineIndex;
+  const line = generated.gcodeLines[lineIndex];
+  const start = generated.gcodeLineOffsets[lineIndex];
+  if (refs.output.selectionStart === start && refs.output.selectionEnd === start + line.length) return;
+  refs.output.setSelectionRange(start, start + line.length);
+  const style = window.getComputedStyle(refs.output);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  const top = Number.parseFloat(style.paddingTop) + lineIndex * lineHeight;
+  refs.output.dataset.activeLine = String(lineIndex);
+  refs.output.scrollTop = Math.max(0, top - refs.output.clientHeight / 2 + lineHeight / 2);
+  updateGcodeHighlight();
+}
+
+function updateGcodeHighlight() {
+  if (refs.output.dataset.activeLine === undefined) return;
+  const style = window.getComputedStyle(refs.output);
+  const lineHeight = Number.parseFloat(style.lineHeight);
+  const top = Number.parseFloat(style.paddingTop) + Number(refs.output.dataset.activeLine) * lineHeight - refs.output.scrollTop;
+  refs.output.style.backgroundImage = "linear-gradient(#ffe08a, #ffe08a)";
+  refs.output.style.backgroundSize = `100% ${lineHeight}px`;
+  refs.output.style.backgroundPosition = `0 ${top}px`;
 }
 
 async function parseC2D(bytes, fileName) {
@@ -553,7 +623,7 @@ function generateGcode(parsed, fileName) {
       return;
     }
     lines.push(`G0 ${parts.join(" ")}`);
-    motionState = appendPlaybackMotion(playbackSegments, motionState, next, RAPID_RATE_MM_PER_MIN, "rapid", color);
+    motionState = appendPlaybackMotion(playbackSegments, motionState, next, RAPID_RATE_MM_PER_MIN, "rapid", color, lines.length - 1);
   }
 
   function emitFeedChange(rate) {
@@ -577,14 +647,15 @@ function generateGcode(parsed, fileName) {
       x: motionState.x,
       y: motionState.y,
       z,
-    }, rate, "plunge", color);
+    }, rate, "plunge", color, lines.length - 1);
   }
 
-  function emitCut(point, rate, color) {
+  function emitCut(point, rate, color, z = motionState.z) {
     const [x, y] = point;
     const parts = [];
     if (!numbersEqual(x, motionState.x)) parts.push(`X${formatNumber(x)}`);
     if (!numbersEqual(y, motionState.y)) parts.push(`Y${formatNumber(y)}`);
+    if (!numbersEqual(z, motionState.z)) parts.push(`Z${formatNumber(z)}`);
     if (!parts.length) {
       return;
     }
@@ -593,8 +664,8 @@ function generateGcode(parsed, fileName) {
     motionState = appendPlaybackMotion(playbackSegments, motionState, {
       x,
       y,
-      z: motionState.z,
-    }, rate, "cut", color);
+      z,
+    }, rate, "cut", color, lines.length - 1);
   }
 
   for (const toolpath of activeToolpaths) {
@@ -664,10 +735,6 @@ function generateGcode(parsed, fileName) {
     lines.push(`(Toolpath: ${toolpath.name || toolpath.uuid})`);
     lines.push(`(Offset: ${offsetDirectionLabel(offsetDirection)}, start ${formatNumber(startDepth)}mm, end ${formatNumber(endDepth)}mm, stepdown ${formatNumber(stepdown)}mm)`);
 
-    if (toolpath.enable_ramping) {
-      warnings.push(`Toolpath "${toolpath.name || toolpath.uuid}": ramping was requested but is not implemented yet, so a vertical plunge was used.`);
-    }
-
     previewPaths.push({
       name: toolpath.name || toolpath.uuid,
       color: toolpath.color || PREVIEW_COLORS[0],
@@ -683,6 +750,15 @@ function generateGcode(parsed, fileName) {
       const tabSegments = path.tabs.length ? buildTabSegments(path, tabWidth + toolRadius * 2) : [];
       const tabDepth = Math.max(0, endDepth - tabHeight);
       path.tabSegments = tabSegments.filter((segment) => segment.isTab);
+      const rampSegments = [];
+      const rampSlope = Math.tan(degreesToRadians(toolpath.ramp_angle === 20 ? 20 : 5));
+      if (toolpath.enable_ramping) {
+        const segments = tabSegments.length ? tabSegments : buildTabSegments(path, 0);
+        for (const segment of segments) {
+          if (segment.isTab !== segments[0].isTab) break;
+          rampSegments.push(segment);
+        }
+      }
       emitRapid({ z: safeZ }, toolpath.color);
       emitRapid({ x: startPoint[0], y: startPoint[1] }, toolpath.color);
 
@@ -692,6 +768,43 @@ function generateGcode(parsed, fileName) {
           emitRapid({ x: startPoint[0], y: startPoint[1] }, toolpath.color);
         }
         cutCount += 1;
+        if (rampSegments.length) {
+          const targetZ = -Math.min(passDepth, rampSegments[0].isTab ? tabDepth : passDepth);
+          const entryZ = Math.max(targetZ, Math.min(0, motionState.z));
+          emitPlunge(entryZ, plunge, toolpath.color);
+          if (entryZ > targetZ + 1e-6) {
+            const rate = Math.min(feed, plunge);
+            const entrySegments = [];
+            let remainingLength = (entryZ - targetZ) / rampSlope;
+            for (const segment of rampSegments) {
+              const length = pointDistance(segment.start, segment.end);
+              const usedLength = Math.min(length, remainingLength);
+              entrySegments.push({
+                start: segment.start,
+                end: segment.start.map((value, axis) => value + usedLength / length * (segment.end[axis] - value)),
+              });
+              remainingLength -= usedLength;
+              if (remainingLength <= 1e-6) break;
+            }
+            // Shuttle within the tab-free entry span rather than steepening a short ramp.
+            while (motionState.z > targetZ + 1e-6) {
+              for (const reverse of [false, true]) {
+                const segments = reverse ? entrySegments.slice().reverse() : entrySegments;
+                for (const segment of segments) {
+                  const start = reverse ? segment.end : segment.start;
+                  const end = reverse ? segment.start : segment.end;
+                  const length = pointDistance(start, end);
+                  const descentLength = (motionState.z - targetZ) / rampSlope;
+                  if (descentLength > 1e-6 && descentLength < length) {
+                    emitCut(start.map((value, axis) => value + descentLength / length * (end[axis] - value)), rate, toolpath.color, targetZ);
+                  }
+                  const nextZ = motionState.z - pointDistance([motionState.x, motionState.y], end) * rampSlope;
+                  emitCut(end, rate, toolpath.color, nextZ <= targetZ + 1e-6 ? targetZ : nextZ);
+                }
+              }
+            }
+          }
+        }
         if (tabSegments.length && passDepth > tabDepth) {
           for (const segment of tabSegments) {
             const depth = segment.isTab ? tabDepth : passDepth;
@@ -727,8 +840,16 @@ function generateGcode(parsed, fileName) {
     warnings.push(`${skippedToolpaths} non-contour toolpath(s) were ignored.`);
   }
 
+  let offset = 0;
+  const gcodeLineOffsets = lines.map((line) => {
+    const start = offset;
+    offset += line.length + 1;
+    return start;
+  });
   return {
     gcode: lines.join("\n"),
+    gcodeLines: lines,
+    gcodeLineOffsets,
     warnings: uniqueStrings(warnings),
     previewPaths,
     playbackSegments,
@@ -1300,6 +1421,9 @@ function renderToolpaths(parsed) {
       const plunge = formatNumber(sanitizePositiveNumber(toolpath.speeds?.plungerate, sanitizePositiveNumber(toolpath.speeds?.feedrate, 1)));
       const stepdown = formatNumber(Math.max(0.001, sanitizePositiveNumber(toolpath.stepdown, 0.001)));
       const rpm = formatCompactRpm(toolpath.speeds?.rpm);
+      const entryLabel = toolpath.enable_ramping ? `Ramp ${toolpath.ramp_angle === 20 ? 20 : 5}°` : "Vertical";
+      const entryIcon = `<svg class="toolpath-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 20h18"/><path d="${toolpath.enable_ramping ? "M4 4l16 12m-6 0h6v-6" : "M12 3v13m-5-5 5 5 5-5"}"/></svg>`;
+      const editAttributes = `type="button" data-toolpath-edit="${escapeHtml(toolpath.uuid)}" aria-haspopup="dialog"`;
       return `
         <li class="toolpath-item">
           <div class="toolpath-main">
@@ -1315,16 +1439,11 @@ function renderToolpaths(parsed) {
               <span class="toolpath-name">${escapeHtml(toolpath.name || toolpath.uuid)}</span>
             </div>
             <div class="toolpath-stats" aria-label="Toolpath settings">
-              <span class="toolpath-stat"><span class="toolpath-stat-label">FEED</span><span class="toolpath-stat-value">${feed}</span></span>
-              <span class="toolpath-stat"><span class="toolpath-stat-label">PLNG</span><span class="toolpath-stat-value">${plunge}</span></span>
-              <span class="toolpath-stat"><span class="toolpath-stat-label">PASS</span><span class="toolpath-stat-value">${stepdown}</span></span>
-              <span class="toolpath-stat"><span class="toolpath-stat-label">RPM</span><span class="toolpath-stat-value">${rpm}</span></span>
-              <button
-                class="toolpath-stat toolpath-edit toolpath-edit-inline"
-                type="button"
-                data-toolpath-edit="${escapeHtml(toolpath.uuid)}"
-                title="Edit toolpath settings"
-              >EDIT</button>
+              <button class="toolpath-stat" ${editAttributes} aria-label="Edit feedrate: ${feed} mm/min"><span class="toolpath-stat-label">FEED</span><span class="toolpath-stat-value">${feed}</span></button>
+              <button class="toolpath-stat" ${editAttributes} aria-label="Edit plunge rate: ${plunge} mm/min"><span class="toolpath-stat-label">PLNG</span><span class="toolpath-stat-value">${plunge}</span></button>
+              <button class="toolpath-stat" ${editAttributes} aria-label="Edit depth per pass: ${stepdown} mm"><span class="toolpath-stat-label">PASS</span><span class="toolpath-stat-value">${stepdown}</span></button>
+              <button class="toolpath-stat" ${editAttributes} aria-label="Edit spindle speed: ${rpm} RPM"><span class="toolpath-stat-label">RPM</span><span class="toolpath-stat-value">${rpm}</span></button>
+              <button class="toolpath-stat toolpath-entry" ${editAttributes} title="${entryLabel}" aria-label="Edit entry into material: ${entryLabel}">${entryIcon}<span class="toolpath-stat-value">${toolpath.enable_ramping ? `${toolpath.ramp_angle === 20 ? 20 : 5}°` : "Vertical"}</span></button>
             </div>
           </div>
         </li>
@@ -1404,11 +1523,13 @@ function renderPreview(parsed, generated) {
   ].join("");
   svg.appendChild(axes);
 
+  const staticPathsLayer = document.createElementNS(SVG_NS, "g");
+  svg.appendChild(staticPathsLayer);
   for (const path of sourcePaths) {
     const element = document.createElementNS(SVG_NS, "path");
     element.setAttribute("class", "source");
     element.setAttribute("d", polylineToSvgPath(path));
-    svg.appendChild(element);
+    staticPathsLayer.appendChild(element);
   }
 
   previewPaths.forEach((item) => {
@@ -1418,7 +1539,7 @@ function renderPreview(parsed, generated) {
       element.setAttribute("class", "toolpath toolpath-base");
       element.setAttribute("stroke", color);
       element.setAttribute("d", polylineToSvgPath(path));
-      svg.appendChild(element);
+      staticPathsLayer.appendChild(element);
       for (const segment of path.tabSegments || []) {
         const tab = document.createElementNS(SVG_NS, "path");
         tab.setAttribute("class", "toolpath-tab");
@@ -1426,7 +1547,7 @@ function renderPreview(parsed, generated) {
         const title = document.createElementNS(SVG_NS, "title");
         title.textContent = "Holding tab";
         tab.appendChild(title);
-        svg.appendChild(tab);
+        staticPathsLayer.appendChild(tab);
       }
     }
   });
@@ -1462,6 +1583,7 @@ function renderPreview(parsed, generated) {
     initialView: { x: bounds.minX, y: -bounds.maxY, width: bounds.width, height: bounds.height },
     view: { x: bounds.minX, y: -bounds.maxY, width: bounds.width, height: bounds.height },
     originMarker,
+    staticPathsLayer,
     progressLayer,
     toolHead,
     generated,
@@ -1592,7 +1714,8 @@ function updatePreviewMarkers() {
 function updatePlaybackVisualization() {
   if (!state.previewRender || !state.generated) return;
   updatePreviewMarkers();
-  const { progressLayer, generated } = state.previewRender;
+  const { staticPathsLayer, progressLayer, generated } = state.previewRender;
+  staticPathsLayer.setAttribute("display", state.playback.hasStarted ? "none" : "inline");
   const segmentsByColor = new Map();
 
   for (const segment of generated.playbackSegments) {
@@ -1677,7 +1800,7 @@ function computeCenteredBounds(points, padding = 0) {
   };
 }
 
-function appendPlaybackMotion(segments, current, target, rateMmPerMin, motionType, color) {
+function appendPlaybackMotion(segments, current, target, rateMmPerMin, motionType, color, gcodeLineIndex) {
   const safeRate = Math.max(0.001, rateMmPerMin);
   const distance = distance3D(current, target);
   const durationSec = distance === 0 ? 0 : (distance / safeRate) * 60;
@@ -1693,6 +1816,7 @@ function appendPlaybackMotion(segments, current, target, rateMmPerMin, motionTyp
       end: { x: target.x, y: target.y, z: target.z },
       color,
       motionType,
+      gcodeLineIndex,
       startTimeSec: current.timeSec,
       endTimeSec: next.timeSec,
     });
